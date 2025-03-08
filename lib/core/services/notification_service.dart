@@ -1,15 +1,21 @@
+// ignore_for_file: avoid_print
+
+import 'dart:io';
+
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:timezone/timezone.dart';
+import 'package:permission_handler/permission_handler.dart';
+
+import 'package:timezone/timezone.dart' as tz;
 
 class NotificationService {
-  String channelId = 'todo_notification_channel';
-  String channelName = 'Todo Notifications';
-  String channelDescription = 'Notifications for Todo reminders';
+  static final NotificationService _instance = NotificationService._internal();
+  factory NotificationService() => _instance;
+  NotificationService._internal();
 
   final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
       FlutterLocalNotificationsPlugin();
 
-  Future<void> init() async {
+  Future<void> initNotifications() async {
     const AndroidInitializationSettings initializationSettingsAndroid =
         AndroidInitializationSettings('@mipmap/ic_launcher');
 
@@ -19,69 +25,54 @@ class NotificationService {
     await flutterLocalNotificationsPlugin.initialize(initializationSettings);
   }
 
-  Future<void> createNotificationChannel() async {
-    AndroidNotificationChannel channel = AndroidNotificationChannel(
-      channelId,
-      channelName,
-      description: channelDescription,
-      importance: Importance.max,
-    );
-
-    final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-        FlutterLocalNotificationsPlugin();
-
-    await flutterLocalNotificationsPlugin
-        .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >()
-        ?.createNotificationChannel(channel);
+  Future<void> requestExactAlarmPermission() async {
+    if (Platform.isAndroid) {
+      if (await Permission.scheduleExactAlarm.isDenied) {
+        await Permission.scheduleExactAlarm.request();
+      }
+    }
   }
 
-  Future<void> requestNotificationPermissions() async {
-    final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-        FlutterLocalNotificationsPlugin();
-
-    await flutterLocalNotificationsPlugin
-        .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >()
-        ?.requestNotificationsPermission();
-  }
-
-  Future<void> scheduleNotification(
-    int id,
-    String title,
-    String body,
-    DateTime scheduledDate,
-  ) async {
-    AndroidNotificationDetails androidPlatformChannelSpecifics =
-        AndroidNotificationDetails(
-          channelId,
-          channelName,
-          importance: Importance.max,
-          priority: Priority.high,
-        );
-
-    NotificationDetails platformChannelSpecifics = NotificationDetails(
-      android: androidPlatformChannelSpecifics,
+  Future<void> scheduleNotification({
+    required int id,
+    required String title,
+    required String body,
+    required DateTime scheduledDate,
+  }) async {
+    final tz.TZDateTime now = tz.TZDateTime.now(tz.local);
+    final tz.TZDateTime scheduledTZDate = tz.TZDateTime.from(
+      scheduledDate,
+      tz.local,
     );
 
-    final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-        FlutterLocalNotificationsPlugin();
+    if (scheduledTZDate.isBefore(now)) {
+      print(
+        "🚨 Error: Scheduled date must be in the future!",
+      ); // Debugging message
+      return;
+    }
+
+    int safeId = id.remainder(100000);
 
     await flutterLocalNotificationsPlugin.zonedSchedule(
-      id,
+      safeId,
       title,
       body,
-      TZDateTime.from(scheduledDate, local),
-      androidScheduleMode: AndroidScheduleMode.alarmClock,
-      platformChannelSpecifics,
+      scheduledTZDate,
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'task_channel',
+          'Task Notifications',
+          channelDescription: 'Reminders for animal care tasks',
+          importance: Importance.max,
+          priority: Priority.high,
+          playSound: true, 
+          enableVibration: true, 
+        ),
+      ),
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
+      androidScheduleMode: AndroidScheduleMode.alarmClock,
     );
-  }
-
-  Future<void> cancelNotification(int id) async {
-    await flutterLocalNotificationsPlugin.cancel(id);
   }
 }
